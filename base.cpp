@@ -1,4 +1,5 @@
 #include "base.h"
+#include <vector>
 
 Variable::Variable()
 {
@@ -12,6 +13,26 @@ Variable::Variable(cv::Mat _data)
 void Variable::SetCreator(Function* _func)
 {
 	this->creator = _func;
+}
+
+void Variable::backward()
+{
+	std::vector<Function*> funcs;
+	funcs.push_back(this->creator);
+	while (!funcs.empty()) 
+	{
+		Function* f = funcs.back();
+		Variable x = f->input;
+		Variable* y = f->output;
+
+		x.grad = f->backward(y->grad);
+		std::cout << x.grad << std::endl;
+
+		// If the input variable has a creator, add it to the stack
+		if (x.creator) {
+			funcs.push_back(x.creator);
+		}
+	}
 }
 
 
@@ -39,7 +60,10 @@ cv::Mat Square::forward(cv::Mat x)
 
 cv::Mat Square::backward(cv::Mat gy)
 {
+	std::cout << gy.empty() << std::endl;
+	std::cout << gy << std::endl;
 	cv::Mat x = input.data;
+	std::cout << x << std::endl;
 	cv::Mat gx = 2 * x.mul(gy); // OpenCV´Â element-wise °ö¼ÀÀ» À§ÇØ mul »ç¿ë
 	return gx;
 }

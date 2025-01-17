@@ -16,6 +16,7 @@ public:
 
 public:
 	void SetCreator(Function* _func);
+	void backward();
 
 };
 
@@ -23,7 +24,7 @@ class Function
 {
 public:
 	Variable input;
-	Variable output;
+	Variable* output;
 public:
 	Function() = default;
 	virtual ~Function() = default;
@@ -32,10 +33,10 @@ public:
 		// output의 참조자 반환
 		cv::Mat x = _input.data;
 		cv::Mat y = forward(x);
-		input = _input; // 입력변수 보관
-		Variable _output = Variable{ y }; 
+		input = Variable(_input.data); // 입력변수 보관
+		Variable _output = Variable{ y };
 		_output.SetCreator(this); // 출력 변수에 창조자 설정
-		output = _output; // 출력 저장
+		output = &_output; // 출력 저장
 		return _output;
 	}
 
@@ -50,7 +51,7 @@ public:
 	cv::Mat backward(cv::Mat gy) override;
 };
 
-class Exp : public Function 
+class Exp : public Function
 {
 public:
 	cv::Mat forward(cv::Mat x) override;
