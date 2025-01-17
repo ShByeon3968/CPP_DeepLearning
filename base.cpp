@@ -1,95 +1,48 @@
+#pragma once
 #include "base.h"
-#include <vector>
 
-Variable::Variable()
-{
+Variable::Variable() = default;
+
+Variable::Variable(const cv::Mat& _data) : data(_data) {}
+
+void Variable::SetCreator(const std::shared_ptr<Function>& func) {
+    this->creator = func;
 }
 
-Variable::Variable(cv::Mat _data)
-{
-	data = _data;
+void Variable::backward() {
+    if (grad.empty()) {
+        grad = cv::Mat::ones(data.size(), data.type()); // Initialize gradient with ones
+    }
+
+    std::vector<std::shared_ptr<Function>> funcs;
+    funcs.push_back(creator);
+
+    while (!funcs.empty()) {
+        auto f = funcs.back();
+        funcs.pop_back();
+
+        if (!f) continue;
+
+        auto x = f->input; // 입력 변수
+        auto y = f->output; // 출력 변수
+
+        if (!y) {
+            throw std::logic_error("Output variable is null.");
+        }
+
+        cv::Mat gy = y->grad;
+        x->grad = f->backward(gy);
+
+        // If the input variable has a creator, add it to the stack
+        if (x->creator) {
+            funcs.push_back(x->creator);
+        }
+    }
 }
 
-void Variable::SetCreator(Function* _func)
+// Square 연산 함수
+std::shared_ptr<Variable> square(const std::shared_ptr<Variable>& x)
 {
-	this->creator = _func;
-}
-
-void Variable::backward()
-{
-	std::vector<Function*> funcs;
-	funcs.push_back(this->creator);
-	while (!funcs.empty()) 
-	{
-		Function* f = funcs.back();
-		Variable x = f->input;
-		Variable* y = f->output;
-
-		x.grad = f->backward(y->grad);
-		std::cout << x.grad << std::endl;
-
-		// If the input variable has a creator, add it to the stack
-		if (x.creator) {
-			funcs.push_back(x.creator);
-		}
-	}
-}
-
-
-cv::Mat Function::forward(cv::Mat x)
-{
-	return cv::Mat();
-}
-
-cv::Mat Function::backward(cv::Mat gy)
-{
-	return cv::Mat();
-}
-
-cv::Mat Square::forward(cv::Mat x)
-{
-	if (x.empty())
-	{
-		throw std::invalid_argument("Input matrix is empty.");
-	}
-
-	cv::Mat output;
-	cv::pow(x, 2, output);
-	return output;
-}
-
-cv::Mat Square::backward(cv::Mat gy)
-{
-	std::cout << gy.empty() << std::endl;
-	std::cout << gy << std::endl;
-	cv::Mat x = input.data;
-	std::cout << x << std::endl;
-	cv::Mat gx = 2 * x.mul(gy); // OpenCV는 element-wise 곱셈을 위해 mul 사용
-	return gx;
-}
-
-cv::Mat Exp::forward(cv::Mat x)
-{
-	if (x.empty())
-	{
-		throw std::invalid_argument("Input matrix is empty.");
-	}
-
-	// 입력이 부동소수점 타입인지 확인
-	if (x.type() != CV_32F && x.type() != CV_64F) {
-		throw std::invalid_argument("Input matrix must be of type CV_32F or CV_64F.");
-	}
-
-	cv::Mat output;
-	cv::exp(x, output);
-	return output;
-}
-
-cv::Mat Exp::backward(cv::Mat gy)
-{
-	cv::Mat x = input.data;
-	cv::Mat expOutput;
-	cv::exp(x, expOutput);
-	cv::Mat y = expOutput.mul(gy); // OpenCV는 element-wise 곱셈을 위해 mul 사용
-	return y;
+    auto f = std::make_shared<Square>();
+    return (*f)(x);
 }
