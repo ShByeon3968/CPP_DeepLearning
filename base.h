@@ -19,88 +19,137 @@ public:
 public:
     void SetCreator(const std::shared_ptr<Function>& func);
     void backward();
+
+private:
+    void checkDataType(const cv::Mat& data)
+    {
+        // 데이터 타입 확인
+        if (data.empty()) {
+            throw std::invalid_argument("Input data is empty.");
+        }
+
+        // OpenCV의 Mat 타입만 허용
+        if (data.type() != CV_32F && data.type() != CV_64F) {
+            throw std::invalid_argument("Input data must be of type CV_32F or CV_64F.");
+        }
+    }
 };
 
-class Function :public std::enable_shared_from_this<Function>
-{
+class Function : public std::enable_shared_from_this<Function> {
 public:
-	std::shared_ptr<Variable> input;
-	std::shared_ptr<Variable> output;
+    std::vector<std::shared_ptr<Variable>> inputs;
+    std::vector<std::shared_ptr<Variable>> outputs;
+
 public:
     Function() = default;
     virtual ~Function() = default;
 
-    std::shared_ptr<Variable> operator()(const std::shared_ptr<Variable>& inputVar) {
-        if (!inputVar) {
-            throw std::invalid_argument("Input variable is null.");
+    // 다중 입력 및 출력 지원
+    std::vector<std::shared_ptr<Variable>> operator()(const std::vector<std::shared_ptr<Variable>>& inputVars) {
+        if (inputVars.empty()) {
+            throw std::invalid_argument("No input variables provided.");
         }
 
-        cv::Mat x = inputVar->data;
-        cv::Mat y = forward(x);
+        // 입력 데이터 추출
+        std::vector<cv::Mat> xs;
+        for (const auto& var : inputVars) {
+            if (!var) {
+                throw std::invalid_argument("Null variable in inputs.");
+            }
+            xs.push_back(var->data);
+        }
 
-        input = inputVar; // 입력 변수 저장
-        auto outputVar = std::make_shared<Variable>(y);
-        outputVar->SetCreator(shared_from_this()); // 창조자 저장
-        output = outputVar;
+        // Forward 연산 수행
+        std::vector<cv::Mat> ys = forward(xs);
 
-        return outputVar;
+        // 출력 변수 생성
+        std::vector<std::shared_ptr<Variable>> outputVars;
+        for (const auto& y : ys) {
+            auto outputVar = std::make_shared<Variable>(y);
+            outputVar->SetCreator(shared_from_this()); // 창조자 설정
+            outputVars.push_back(outputVar);
+        }
+
+        // 입력 및 출력 보관
+        inputs = inputVars;
+        outputs = outputVars;
+
+        return outputVars;
     }
 
-    virtual cv::Mat forward(const cv::Mat& x) = 0;
-    virtual cv::Mat backward(const cv::Mat& gy) = 0;
+    // Forward 및 Backward 함수
+    virtual std::vector<cv::Mat> forward(const std::vector<cv::Mat>& xs) = 0;
+    virtual std::vector<cv::Mat> backward(const std::vector<cv::Mat>& gys) = 0;
 };
 
 class Square : public Function {
 public:
-    cv::Mat forward(const cv::Mat& x) override {
-        if (x.empty()) {
-            throw std::invalid_argument("Input matrix is empty.");
+    // Forward 연산
+    std::vector<cv::Mat> forward(const std::vector<cv::Mat>& xs) override {
+        std::vector<cv::Mat> ys;
+        for (const auto& x : xs) {
+            if (x.empty()) {
+                throw std::invalid_argument("Input matrix is empty.");
+            }
+            cv::Mat y;
+            cv::pow(x, 2, y); // 제곱 연산
+            ys.push_back(y);
         }
-
-        cv::Mat output;
-        cv::pow(x, 2, output);
-        return output;
+        return ys;
     }
 
-    cv::Mat backward(const cv::Mat& gy) override {
-        if (!input) {
-            throw std::logic_error("Input variable is not set.");
+    // Backward 연산
+    std::vector<cv::Mat> backward(const std::vector<cv::Mat>& gys) override {
+        if (inputs.empty()) {
+            throw std::logic_error("Inputs are not set.");
         }
 
-        cv::Mat x = input->data;
-        cv::Mat gx = 2 * x.mul(gy); // Element-wise multiplication
-        return gx;
+        std::vector<cv::Mat> grads;
+        for (size_t i = 0; i < gys.size(); ++i) {
+            const cv::Mat& x = inputs[i]->data;
+            const cv::Mat& gy = gys[i];
+            grads.push_back(2 * x.mul(gy)); // 2 * x * gy
+        }
+        return grads;
     }
 };
 
 class Exp : public Function {
 public:
-    cv::Mat forward(const cv::Mat& x) override {
-        if (x.empty()) {
-            throw std::invalid_argument("Input matrix is empty.");
+    std::vector<cv::Mat> forward(const std::vector<cv::Mat>& xs) override {
+        std::vector<cv::Mat> ys;
+        for (const auto& x : xs) {
+            if (x.empty()) {
+                throw std::invalid_argument("Input matrix is empty.");
+            }
+            if (x.type() != CV_32F && x.type() != CV_64F) {
+                throw std::invalid_argument("Input matrix must be of type CV_32F or CV_64F.");
+            }
+            cv::Mat y;
+            cv::exp(x, y); // 제곱 연산
+            ys.push_back(y);
         }
-
-        if (x.type() != CV_32F && x.type() != CV_64F) {
-            throw std::invalid_argument("Input matrix must be of type CV_32F or CV_64F.");
-        }
-
-        cv::Mat output;
-        cv::exp(x, output);
-        return output;
+        return ys;
     }
 
-    cv::Mat backward(const cv::Mat& gy) override {
-        if (!input) {
-            throw std::logic_error("Input variable is not set.");
+    std::vector<cv::Mat> backward(const std::vector<cv::Mat>& gys) override {
+        if (inputs.empty()) {
+            throw std::logic_error("Inputs are not set.");
         }
 
-        cv::Mat x = input->data;
-        cv::Mat expOutput;
-        cv::exp(x, expOutput);
-        cv::Mat y = expOutput.mul(gy); // Element-wise multiplication
-        return y;
+        std::vector<cv::Mat> grads;
+        for (size_t i = 0; i < gys.size(); ++i) {
+            const cv::Mat& x = inputs[i]->data;
+            const cv::Mat& gy = gys[i];
+
+            cv::Mat expX;
+            cv::exp(x, expX); // Forward에서 계산한 exp(x)를 다시 계산
+            grads.push_back(expX.mul(gy)); // exp(x) * gy
+        }
+        return grads;
     }
 };
 
 // Square 연산 함수
-std::shared_ptr<Variable> square(const std::shared_ptr<Variable>& x);
+std::vector<std::shared_ptr<Variable>> square(const std::vector<std::shared_ptr<Variable>>& xs);
+std::vector<std::shared_ptr<Variable>> exp(const std::vector<std::shared_ptr<Variable>>& xs);
